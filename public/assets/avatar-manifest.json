@@ -1,0 +1,10 @@
+{
+  "character": "Haneul",
+  "adultAge": 23,
+  "primaryModel": "/assets/haneul.glb",
+  "optionalVRMOverride": "/assets/haneul.vrm",
+  "requiredBones": ["Hips", "Spine", "Chest", "Neck", "Head"],
+  "requiredExpressions": ["Blink", "Smile", "A", "I", "U", "E", "O"],
+  "reconstruction": "single-view generated-character reference",
+  "notes": "Actual 3D mesh with embedded skin texture, skeleton, independent eyes/hair and facial morph targets. A production scan/sculpt from multi-view references would be required for scan-grade side-profile identity fidelity."
+}

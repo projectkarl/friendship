@@ -1,0 +1,9 @@
+{
+  "name": "NEULI Virtual Companion",
+  "short_name": "NEULI",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0b0c11",
+  "theme_color": "#0b0c11",
+  "icons": []
+}

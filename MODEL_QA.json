@@ -1,0 +1,29 @@
+{
+  "ok": true,
+  "file": "/mnt/data/NEULI_v0.4_REAL_AVATAR/public/assets/haneul.glb",
+  "bytes": 3139304,
+  "meshes": 17,
+  "nodes": 26,
+  "joints": 9,
+  "triangles": 51836,
+  "expressions": [
+    "A",
+    "Blink",
+    "E",
+    "I",
+    "O",
+    "Smile",
+    "U"
+  ],
+  "bones": [
+    "Hips",
+    "Spine",
+    "Chest",
+    "Neck",
+    "Head",
+    "LeftShoulder",
+    "LeftUpperArm",
+    "RightShoulder",
+    "RightUpperArm"
+  ]
+}
