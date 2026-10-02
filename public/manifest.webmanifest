@@ -1,9 +1,1 @@
-{
-  "name": "NEULI Virtual Companion",
-  "short_name": "NEULI",
-  "start_url": "/",
-  "display": "standalone",
-  "background_color": "#0b0c11",
-  "theme_color": "#0b0c11",
-  "icons": []
-}
+{"name":"NEULI Live 2.5D","short_name":"NEULI","start_url":"/","display":"standalone","background_color":"#090a0e","theme_color":"#090a0e","icons":[]}

@@ -1,123 +1,25 @@
-<!doctype html>
-<html lang="zh-Hant">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover" />
-  <meta name="theme-color" content="#0c0d12" />
-  <meta name="description" content="NEULI — voice-first virtual companion experience" />
-  <link rel="manifest" href="/manifest.webmanifest" />
-  <link rel="stylesheet" href="/styles.css" />
-  <title>NEULI — Virtual Companion</title>
-</head>
-<body>
-  <div class="app" id="app" data-scene="studio">
-    <div class="scene scene-studio"></div>
-    <div class="scene scene-night"></div>
-    <div class="scene scene-window"></div>
-    <div class="vignette"></div>
-    <div class="noise"></div>
-
-    <header class="topbar">
-      <div class="identity">
-        <div class="logo">NEULI</div>
-        <div class="presence-line"><span class="online-dot"></span><span id="topStatus">Haneul · 23 · 在線</span></div>
-      </div>
-      <div class="top-actions">
-        <button class="model-badge" id="modelBadge" data-state="loading" aria-label="3D 模型狀態">3D loading</button>
-        <button class="glass-icon" id="historyBtn" aria-label="對話紀錄" title="對話紀錄">⌁</button>
-        <button class="glass-icon" id="settingsBtn" aria-label="角色設定" title="角色設定">⚙</button>
-      </div>
-    </header>
-
-    <main class="world">
-      <div class="ambient-orb orb-one"></div>
-      <div class="ambient-orb orb-two"></div>
-
-      <section class="avatar-stage" aria-label="Haneul 3D avatar">
-        <div class="avatar3d-host" id="avatar3dHost" aria-label="3D 虛擬人 Haneul"></div>
-        <div class="avatar-shell avatar-fallback" id="avatarFallback" data-outfit="ivory" data-mood="warm" aria-hidden="true">
-          <div class="hair-back"></div><div class="neck"></div><div class="torso"></div><div class="face"></div>
-        </div>
-        <div class="avatar-caption" id="presenceCaption">看著你 · 微笑</div>
-      </section>
-
-      <section class="conversation-card" id="conversationCard" aria-live="polite">
-        <div class="speaker">Haneul</div>
-        <div class="reply" id="replyText">你來了。今天想先聊聊，還是直接用語音跟我說？</div>
-      </section>
-    </main>
-
-    <section class="composer-wrap">
-      <div class="composer">
-        <button class="circle-btn mic-btn" id="micBtn" aria-label="語音輸入"><span class="mic-glyph">●</span></button>
-        <input id="messageInput" autocomplete="off" enterkeyhint="send" placeholder="跟 Haneul 說點什麼…" />
-        <button class="circle-btn send-btn" id="sendBtn" aria-label="送出">↑</button>
-      </div>
-      <div class="composer-hint" id="composerHint">按住麥克風不用，點一下開始／停止語音輸入</div>
-    </section>
-
-    <aside class="sidepanel settings-panel" id="settingsPanel" aria-hidden="true">
-      <div class="panel-head"><div><b>角色設定</b><span>Appearance & voice</span></div><button class="panel-close" data-close="settingsPanel">×</button></div>
-      <div class="panel-scroll">
-        <section class="setting-section">
-          <div class="setting-title">今日穿搭</div>
-          <div class="wardrobe-grid" id="wardrobe">
-            <button class="wardrobe-card active" data-outfit="ivory"><i class="fabric ivory"></i><span>奶油針織</span></button>
-            <button class="wardrobe-card" data-outfit="black"><i class="fabric black"></i><span>黑色極簡</span></button>
-            <button class="wardrobe-card" data-outfit="blue"><i class="fabric blue"></i><span>霧藍襯衫</span></button>
-            <button class="wardrobe-card" data-outfit="rose"><i class="fabric rose"></i><span>玫瑰外套</span></button>
-            <button class="wardrobe-card" data-outfit="denim"><i class="fabric denim"></i><span>淺色丹寧</span></button>
-            <button class="wardrobe-card" data-outfit="night"><i class="fabric night"></i><span>夜黑洋裝</span></button>
-          </div>
-        </section>
-
-        <section class="setting-section">
-          <div class="setting-title">場景</div>
-          <div class="segmented" id="scenePicker">
-            <button class="active" data-scene="studio">柔光室內</button>
-            <button data-scene="window">窗邊白日</button>
-            <button data-scene="night">城市夜景</button>
-          </div>
-        </section>
-
-        <section class="setting-section">
-          <div class="setting-title">互動</div>
-          <label class="toggle-row"><span>自動唸出回覆<small>使用裝置內建語音</small></span><button class="switch on" id="ttsToggle" role="switch" aria-checked="true"></button></label>
-          <label class="toggle-row"><span>顯示字幕<small>說話時保留文字回覆</small></span><button class="switch on" id="subtitleToggle" role="switch" aria-checked="true"></button></label>
-          <label class="toggle-row"><span>保留本機對話<small>只儲存在這台裝置</small></span><button class="switch on" id="memoryToggle" role="switch" aria-checked="true"></button></label>
-        </section>
-
-        <section class="setting-section">
-          <div class="setting-title">資料</div>
-          <button class="danger-btn" id="clearMemoryBtn">清除本機對話與偏好</button>
-          <p class="privacy-note">麥克風只會在你啟用語音輸入時使用。若之後接入雲端語音或 AI，請在正式版顯示上傳與保存方式。</p>
-        </section>
-      </div>
-    </aside>
-
-    <aside class="sidepanel model-panel" id="modelPanel" aria-hidden="true">
-      <div class="panel-head"><div><b>3D Model QA</b><span id="modelStatusLine">正在檢查高模資產…</span></div><button class="panel-close" data-close="modelPanel">×</button></div>
-      <div class="panel-scroll">
-        <section class="setting-section">
-          <div class="setting-title">實際載入狀態</div>
-          <div id="modelQaList" class="qa-list"><div class="qa-row"><span>Model</span><b>Loading…</b></div></div>
-          <p class="privacy-note">此頁直接檢查實際 GLB/VRM 的 mesh、骨架與 facial morph targets；缺少必要資料會顯示警告，不以 2D 圖片冒充。</p>
-        </section>
-      </div>
-    </aside>
-
-    <aside class="sidepanel history-panel" id="historyPanel" aria-hidden="true">
-      <div class="panel-head"><div><b>對話</b><span>Today</span></div><button class="panel-close" data-close="historyPanel">×</button></div>
-      <div class="history-list" id="historyList"></div>
-    </aside>
-
-    <div class="panel-scrim" id="panelScrim"></div>
-    <div class="toast" id="toast"></div>
-  </div>
-  <script type="importmap">
-  {"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/","@pixiv/three-vrm":"https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3/lib/three-vrm.module.min.js"}}
-  </script>
-  <script type="module" src="/avatar3d.js"></script>
-  <script src="/app.js" defer></script>
-</body>
-</html>
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><meta name="theme-color" content="#0a0b0f"><title>NEULI Live 2.5D v0.3</title><link rel="manifest" href="/manifest.webmanifest"><link rel="stylesheet" href="/styles.css"></head>
+<body><div class="app">
+<header class="top"><div class="brand"><span class="heart">♥</span><b>NEULI</b><small>LIVE 2.5D · LAYER RIG</small></div><div class="live"><i></i><span>LIVE</span></div></header>
+<main>
+<section class="stage" id="stage">
+  <div class="scene scene-room" id="scene"></div><canvas id="avatar" aria-label="Haneul layered Live 2.5D avatar"></canvas><div class="grade"></div>
+  <div class="avatar-meta"><strong>Haneul 하늘</strong><span id="stateLabel">載入分層角色…</span></div>
+  <div class="hud"><span>LAYER 7</span><span id="yaw">YAW 0°</span><span id="pitch">PITCH 0°</span><span id="viseme">VISEME —</span><span id="fps">60 FPS</span></div>
+</section>
+<section class="chat-panel">
+  <div class="conversation" id="conversation"><div class="bubble her">嗨。v0.3 已把眼睛、閉眼層、嘴唇和前髮拆成獨立控制層，不再只扭曲整張人物圖。</div></div>
+  <div class="quick"><button data-action="smile">微笑</button><button data-action="blink">眨眼</button><button data-action="talk">說一句</button><button data-action="reset">自然</button></div>
+  <div class="composer"><button id="mic" class="round" aria-label="語音輸入">🎙</button><input id="input" placeholder="跟她說話…" autocomplete="off"><button id="send" class="round send">↑</button></div>
+</section>
+<button id="settings" class="settings" aria-label="設定">⚙</button>
+<aside class="drawer" id="drawer"><div class="drawer-head"><strong>Layer Live Rig</strong><button id="close">×</button></div>
+  <label>頭部跟隨 <output id="headOut">68%</output><input id="head" type="range" min="0" max="100" value="68"></label>
+  <label>視線跟隨 <output id="gazeOut">75%</output><input id="gaze" type="range" min="0" max="100" value="75"></label>
+  <label>嘴型強度 <output id="lipOut">82%</output><input id="lip" type="range" min="0" max="100" value="82"></label>
+  <label>呼吸動作 <output id="breathOut">52%</output><input id="breath" type="range" min="0" max="100" value="52"></label>
+  <label>前髮擺動 <output id="hairOut">46%</output><input id="hair" type="range" min="0" max="100" value="46"></label>
+  <div class="scene-buttons"><button data-scene="room" class="active">房間</button><button data-scene="night">夜景</button><button data-scene="cafe">咖啡廳</button></div>
+  <p>分層：Base、左右眼、左右閉眼層、嘴唇、前髮。眼口底層已補平；眨眼改用專用閉眼貼層交叉淡入，避免壓縮眼睛造成鬼影。</p>
+</aside>
+</main></div><script type="module" src="/app.js"></script></body></html>

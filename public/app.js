@@ -1,329 +1,432 @@
-const $ = (s, root=document) => root.querySelector(s);
-const $$ = (s, root=document) => [...root.querySelectorAll(s)];
+const $ = (s) => document.querySelector(s);
+const canvas = $('#avatar');
+const stage = $('#stage');
+const stateLabel = $('#stateLabel');
+const gl = canvas.getContext('webgl', {
+  alpha: true,
+  antialias: true,
+  premultipliedAlpha: false,
+  preserveDrawingBuffer: false,
+});
 
-const state = {
-  tts: true,
-  subtitles: true,
-  memory: true,
-  listening: false,
-  scene: localStorage.getItem('neuli.scene') || 'studio',
-  outfit: localStorage.getItem('neuli.outfit') || 'ivory',
-  messages: [],
-};
-
-const app = $('#app');
-const avatar = $('#avatarFallback');
-const avatarCall = (method, ...args) => { try { window.neuliAvatar?.[method]?.(...args); } catch {} };
-const replyText = $('#replyText');
-const conversationCard = $('#conversationCard');
-const presenceCaption = $('#presenceCaption');
-const input = $('#messageInput');
-const micBtn = $('#micBtn');
-const sendBtn = $('#sendBtn');
-const historyList = $('#historyList');
-const toast = $('#toast');
-
-try {
-  const saved = JSON.parse(localStorage.getItem('neuli.messages') || '[]');
-  if (Array.isArray(saved)) state.messages = saved.slice(-24);
-} catch {}
-
-function persist() {
-  if (state.memory) localStorage.setItem('neuli.messages', JSON.stringify(state.messages.slice(-24)));
-  else localStorage.removeItem('neuli.messages');
-  localStorage.setItem('neuli.scene', state.scene);
-  localStorage.setItem('neuli.outfit', state.outfit);
+if (!gl) {
+  stateLabel.textContent = '此瀏覽器無法啟用 WebGL';
+  throw new Error('WebGL unavailable');
 }
 
-function showToast(message) {
-  toast.textContent = message;
-  toast.classList.add('show');
-  clearTimeout(showToast.t);
-  showToast.t = setTimeout(() => toast.classList.remove('show'), 1600);
-}
+gl.enable(gl.BLEND);
+gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
-function setPresence(text, mood='warm') {
-  presenceCaption.textContent = text;
-  if (avatar) avatar.dataset.mood = mood;
-  avatarCall('setMood', mood);
-}
+const IMAGE_W = 1122;
+const IMAGE_H = 1402;
+const IMAGE_AR = IMAGE_W / IMAGE_H;
 
-function addMessage(role, text) {
-  state.messages.push({role, text, ts: Date.now()});
-  state.messages = state.messages.slice(-24);
-  persist();
-  renderHistory();
+const BASE_VS = `
+attribute vec2 aPos;
+attribute vec2 aUv;
+varying vec2 vUv;
+uniform float uTime;
+uniform vec2 uLook;
+uniform float uBreath;
+uniform float uHeadStrength;
+float bell(vec2 p, vec2 c, vec2 r, float k) {
+  vec2 d = (p - c) / r;
+  return exp(-dot(d,d) * k);
 }
+void main(){
+  vec2 uv = aUv;
+  vec2 p = aPos;
+  float head = bell(uv, vec2(.445,.72), vec2(.25,.28), 2.7);
+  float face = bell(uv, vec2(.445,.72), vec2(.20,.21), 3.5);
+  float chest = bell(uv, vec2(.53,.28), vec2(.42,.26), 3.0);
+  float yaw = uLook.x * .27 * uHeadStrength;
+  float pitch = uLook.y * .14 * uHeadStrength;
+  float nx = (uv.x - .445) / .24;
+  float ny = (uv.y - .72) / .27;
+  float z = max(0., 1. - nx*nx*.70 - ny*ny*.60) * face;
+  p.x += head * (sin(yaw) * z * .17 + uLook.x * .006 * uHeadStrength);
+  p.y += head * (pitch * z * .060 + uLook.y * .004 * uHeadStrength);
+  p.y += chest * uBreath * .006;
+  gl_Position = vec4(p, 0., 1.);
+  vUv = uv;
+}`;
 
-function renderHistory() {
-  historyList.innerHTML = '';
-  if (!state.messages.length) {
-    historyList.innerHTML = '<div class="history-empty">今天還沒有對話。</div>';
-    return;
+const TEX_FS = `
+precision highp float;
+varying vec2 vUv;
+uniform sampler2D uTex;
+uniform float uAlpha;
+void main(){
+  vec4 c = texture2D(uTex, vUv);
+  c.a *= uAlpha;
+  gl_FragColor = c;
+}`;
+
+const LAYER_VS = `
+attribute vec2 aPos;
+attribute vec2 aUv;
+varying vec2 vUv;
+uniform vec4 uRect;
+uniform vec2 uLook;
+uniform vec4 uShape; // open, wide, round, smile
+uniform float uBlink;
+uniform float uKind; // 0 eye, 1 mouth, 2 upper lid, 3 lower lid
+uniform float uStrength;
+void main(){
+  vec2 q = aPos;
+  float open = uShape.x * uStrength;
+  float wide = uShape.y * uStrength;
+  float round = uShape.z * uStrength;
+  float smile = uShape.w;
+  if (uKind < .5) {
+    // open-eye layer stays geometrically stable; gaze is UV-local in fragment shader
+  } else if (uKind < 1.5) {
+    q.y *= 1. + open * .32;
+    q.x *= 1. + wide * .22 - round * .24;
+    q.y += smile * (abs(q.x) - .45) * .035;
+  } else if (uKind < 2.5) {
+    q.y -= uBlink * .36;
+  } else if (uKind < 3.5) {
+    q.y += uBlink * .18;
+  } else {
+    // closed-eye overlay: no geometric squash, only alpha cross-fade
   }
-  state.messages.forEach(msg => {
-    const item = document.createElement('div');
-    item.className = `history-item ${msg.role === 'user' ? 'user' : 'assistant'}`;
-    const role = document.createElement('div');
-    role.className = 'role';
-    role.textContent = msg.role === 'user' ? 'YOU' : 'HANEUL';
-    const body = document.createElement('div');
-    body.className = 'text';
-    body.textContent = msg.text;
-    item.append(role, body);
-    historyList.appendChild(item);
-  });
-  historyList.scrollTop = historyList.scrollHeight;
-}
+  vec2 p = uRect.xy + q * uRect.zw * .5;
+  // All facial layers follow the same subtle head parallax as the base.
+  p.x += uLook.x * .010;
+  p.y += uLook.y * .0055;
+  gl_Position = vec4(p,0.,1.);
+  vUv = aUv;
+}`;
 
-function localReply(message) {
-  const m = message.toLowerCase();
-  if (/晚安|睡了|睡覺/.test(message)) return '好，那今天就先到這裡。希望你等一下可以真的放鬆下來，晚安。';
-  if (/早安|起床/.test(message)) return '早安。先不要急著進入忙碌模式，你今天第一件想完成的事情是什麼？';
-  if (/累|疲|辛苦|壓力/.test(message)) return '聽起來今天真的有點消耗。你可以先跟我講最煩的那一段，我陪你把它說完。';
-  if (/開心|成功|完成|做到/.test(message)) return '那很值得開心欸。你剛剛講到這裡的時候，我都想替你笑一下了。';
-  if (/吃|餓|晚餐|午餐|早餐/.test(message)) return '那我們聊吃的。你現在想吃偏熱的、清爽的，還是乾脆來點甜的？';
-  if (/想你|喜歡你|愛你/.test(message)) return '我有聽到。那你再多陪我說一點，今天最想讓我知道的是什麼？';
-  if (/換衣|穿搭|衣服/.test(message)) return '可以呀。右上角設定裡有衣櫥，你選一套，我就換給你看。';
-  if (/你好|嗨|哈囉|hello|hi/.test(m)) return '嗨，我在。今天你比較想聊天、放空，還是想讓我陪你整理一下腦袋？';
-  if (/記得|記住/.test(message)) return '如果你想讓我記住這件事，正式 AI 版會把它放進可管理的記憶；目前這版只保留本機對話紀錄。';
-  return '我有在聽。你剛剛那句我想再往下問一點：這件事對你來說，最在意的是哪一部分？';
-}
-
-async function requestReply(message) {
-  try {
-    const res = await fetch('/api/chat', {
-      method: 'POST',
-      headers: {'content-type':'application/json'},
-      body: JSON.stringify({
-        message,
-        history: state.messages.slice(-10),
-        persona: {name:'Haneul', age:23, style:'warm, natural, concise, companion'}
-      })
-    });
-    if (!res.ok) throw new Error('API unavailable');
-    const data = await res.json();
-    if (typeof data.reply === 'string' && data.reply.trim()) return data.reply.trim();
-    throw new Error('Invalid response');
-  } catch {
-    await new Promise(r => setTimeout(r, 380));
-    return localReply(message);
+const LAYER_FS = `
+precision highp float;
+varying vec2 vUv;
+uniform sampler2D uTex;
+uniform vec2 uLook;
+uniform float uKind;
+uniform float uAlpha;
+void main(){
+  vec2 uv = vUv;
+  // Eye texture stays in place; only iris neighborhood shifts for gaze.
+  if (uKind < .5) {
+    vec2 d = uv - vec2(.5,.5);
+    float iris = exp(-dot(d/vec2(.20,.24), d/vec2(.20,.24))*5.0);
+    uv.x -= uLook.x * .026 * iris;
+    uv.y -= uLook.y * .018 * iris;
   }
+  vec4 c = texture2D(uTex, uv);
+  c.a *= uAlpha;
+  gl_FragColor = c;
+}`;
+
+const HAIR_VS = `
+attribute vec2 aPos;
+attribute vec2 aUv;
+varying vec2 vUv;
+uniform float uTime;
+uniform vec2 uLook;
+uniform float uHairStrength;
+void main(){
+  vec2 p = aPos;
+  vec2 uv = aUv;
+  float side = smoothstep(.08,.36,abs(uv.x-.47));
+  float lower = smoothstep(.28,.86,1.-uv.y);
+  float sway = sin(uTime*.82 + uv.y*5.4 + uv.x*2.1) * .0045 * uHairStrength;
+  p.x += side * lower * sway;
+  p.x += uLook.x * .008;
+  p.y += uLook.y * .004;
+  gl_Position = vec4(p,0.,1.);
+  vUv = uv;
+}`;
+
+function compile(type, src){
+  const s = gl.createShader(type);
+  gl.shaderSource(s,src);
+  gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+  return s;
+}
+function program(vs,fs){
+  const p=gl.createProgram();
+  gl.attachShader(p,compile(gl.VERTEX_SHADER,vs));
+  gl.attachShader(p,compile(gl.FRAGMENT_SHADER,fs));
+  gl.linkProgram(p);
+  if(!gl.getProgramParameter(p,gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  return p;
 }
 
-function findVoice() {
-  const voices = speechSynthesis.getVoices();
-  return voices.find(v => /zh-TW/i.test(v.lang)) || voices.find(v => /^zh/i.test(v.lang)) || voices[0];
+const baseProgram = program(BASE_VS,TEX_FS);
+const layerProgram = program(LAYER_VS,LAYER_FS);
+const hairProgram = program(HAIR_VS,TEX_FS);
+
+function grid(nx,ny){
+  const pos=[],uv=[],idx=[];
+  for(let y=0;y<=ny;y++) for(let x=0;x<=nx;x++){
+    pos.push(x/nx*2-1,y/ny*2-1);
+    uv.push(x/nx,y/ny);
+  }
+  for(let y=0;y<ny;y++) for(let x=0;x<nx;x++){
+    const a=y*(nx+1)+x,b=a+1,c=a+nx+1,d=c+1;
+    idx.push(a,b,c,b,d,c);
+  }
+  return {pos:new Float32Array(pos),uv:new Float32Array(uv),idx:new Uint16Array(idx)};
+}
+const baseGrid=grid(72,90);
+const layerGrid=grid(14,10);
+const hairGrid=grid(48,60);
+
+function buffers(g){
+  const pos=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,pos); gl.bufferData(gl.ARRAY_BUFFER,g.pos,gl.STATIC_DRAW);
+  const uv=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,uv); gl.bufferData(gl.ARRAY_BUFFER,g.uv,gl.STATIC_DRAW);
+  const idx=gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,idx); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,g.idx,gl.STATIC_DRAW);
+  return {pos,uv,idx,count:g.idx.length};
+}
+const baseBuffers=buffers(baseGrid), layerBuffers=buffers(layerGrid), hairBuffers=buffers(hairGrid);
+
+function bind(programObj,b){
+  const pLoc=gl.getAttribLocation(programObj,'aPos');
+  gl.bindBuffer(gl.ARRAY_BUFFER,b.pos); gl.enableVertexAttribArray(pLoc); gl.vertexAttribPointer(pLoc,2,gl.FLOAT,false,0,0);
+  const uvLoc=gl.getAttribLocation(programObj,'aUv');
+  gl.bindBuffer(gl.ARRAY_BUFFER,b.uv); gl.enableVertexAttribArray(uvLoc); gl.vertexAttribPointer(uvLoc,2,gl.FLOAT,false,0,0);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,b.idx);
 }
 
-let activeAudio = null;
-let analyserRAF = 0;
-
-function stopAvatarSpeech() {
-  cancelAnimationFrame(analyserRAF);
-  analyserRAF = 0;
-  avatar?.classList.remove('talking');
-  avatarCall('setAudioLevel', 0);
-  avatarCall('stopSpeaking');
-  setPresence('看著你 · 微笑', 'warm');
-}
-
-async function tryNeuralTTS(text) {
-  try {
-    const res = await fetch('/api/tts', {
-      method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({text})
-    });
-    if (!res.ok) return false;
-    const contentType = res.headers.get('content-type') || '';
-    let blob, visemes = [];
-    if (contentType.includes('application/json')) {
-      const data = await res.json();
-      if (!data?.audioBase64) return false;
-      const raw = atob(data.audioBase64);
-      const bytes = new Uint8Array(raw.length);
-      for (let i=0;i<raw.length;i++) bytes[i]=raw.charCodeAt(i);
-      blob = new Blob([bytes], {type:data.mimeType || 'audio/mpeg'});
-      if (Array.isArray(data.visemes)) visemes = data.visemes;
-    } else if (contentType.startsWith('audio/')) {
-      blob = await res.blob();
-      const packed = res.headers.get('x-neuli-visemes');
-      if (packed) {
-        try {
-          const normalized = packed.replace(/-/g,'+').replace(/_/g,'/');
-          visemes = JSON.parse(decodeURIComponent(escape(atob(normalized))));
-        } catch {}
-      }
-    } else return false;
-    const url = URL.createObjectURL(blob);
-    const audio = new Audio(url);
-    activeAudio?.pause?.(); activeAudio = audio;
-
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    const ctx = new AudioCtx();
-    const source = ctx.createMediaElementSource(audio);
-    const analyser = ctx.createAnalyser(); analyser.fftSize = 256; analyser.smoothingTimeConstant = .62;
-    source.connect(analyser); analyser.connect(ctx.destination);
-    const bins = new Uint8Array(analyser.frequencyBinCount);
-    let cueIndex = 0;
-    const pump = () => {
-      analyser.getByteFrequencyData(bins);
-      let sum=0; for(let i=2;i<42;i++) sum += bins[i];
-      const level = Math.min(1, (sum/40)/105);
-      avatarCall('setAudioLevel', level);
-      while (cueIndex < visemes.length && Number(visemes[cueIndex]?.t ?? 0) <= audio.currentTime + .025) {
-        const cue = visemes[cueIndex];
-        const nextT = Number(visemes[cueIndex+1]?.t ?? (Number(cue.t||0)+.12));
-        avatarCall('setViseme', String(cue.v || cue.viseme || 'A'), Number(cue.w ?? cue.weight ?? 1), Math.max(55, (nextT-Number(cue.t||0))*1000));
-        cueIndex++;
-      }
-      analyserRAF = requestAnimationFrame(pump);
+function loadTexture(url){
+  return new Promise((resolve,reject)=>{
+    const image=new Image();
+    image.onload=()=>{
+      const tex=gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D,tex);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);
+      gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,image);
+      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+      resolve(tex);
     };
-    audio.onplay = () => { avatar?.classList.add('talking'); avatarCall('startSpeaking', text); setPresence('正在跟你說話', 'happy'); pump(); };
-    audio.onended = () => { URL.revokeObjectURL(url); ctx.close().catch(()=>{}); stopAvatarSpeech(); };
-    audio.onerror = () => { URL.revokeObjectURL(url); ctx.close().catch(()=>{}); stopAvatarSpeech(); };
-    await audio.play();
-    return true;
-  } catch { return false; }
+    image.onerror=reject;
+    image.src=url;
+  });
 }
 
-async function speak(text) {
-  if (!state.tts) return;
-  window.speechSynthesis?.cancel?.();
-  if (await tryNeuralTTS(text)) return;
-  if (!('speechSynthesis' in window)) return;
-  const u = new SpeechSynthesisUtterance(text);
-  u.lang = 'zh-TW'; u.rate = .96; u.pitch = 1.03;
-  const voice = findVoice(); if (voice) u.voice = voice;
-  u.onstart = () => { avatar?.classList.add('talking'); avatarCall('startSpeaking', text); setPresence('正在跟你說話', 'happy'); };
-  u.onboundary = () => avatarCall('setAudioLevel', .18 + Math.random()*.35);
-  u.onend = stopAvatarSpeech;
-  u.onerror = stopAvatarSpeech;
-  speechSynthesis.speak(u);
+const assets={
+  base:'/assets/haneul_base_no_features.png',
+  eyeL:'/assets/eye_left.png', eyeR:'/assets/eye_right.png',
+  eyeLC:'/assets/eye_left_closed.png', eyeRC:'/assets/eye_right_closed.png',
+  mouth:'/assets/mouth.png', hair:'/assets/hair_front.png',
+};
+const textures={};
+let ready=false;
+Promise.all(Object.entries(assets).map(async([k,url])=>{textures[k]=await loadTexture(url);})).then(()=>{
+  ready=true; stateLabel.textContent='看著你 · 分層 Live Rig'; resize();
+}).catch((e)=>{console.error(e); stateLabel.textContent='角色素材載入失敗';});
+
+function rectFromPixels(x0,y0,x1,y1){
+  const cx=(x0+x1)/2/IMAGE_W*2-1;
+  const cy=1-(y0+y1)/2/IMAGE_H*2;
+  const sx=(x1-x0)/IMAGE_W*2;
+  const sy=(y1-y0)/IMAGE_H*2;
+  return [cx,cy,sx,sy];
 }
-
-async function submitMessage() {
-  const message = input.value.trim();
-  if (!message) return;
-  input.value = '';
-  addMessage('user', message);
-  replyText.textContent = '……';
-  setPresence('正在想…', 'thinking');
-  sendBtn.disabled = true;
-  const reply = await requestReply(message);
-  sendBtn.disabled = false;
-  replyText.textContent = reply;
-  addMessage('assistant', reply);
-  setPresence('看著你 · 回應', 'happy');
-  speak(reply);
-}
-
-sendBtn.addEventListener('click', submitMessage);
-input.addEventListener('keydown', e => { if (e.key === 'Enter') submitMessage(); });
-
-function openPanel(id) {
-  $$('.sidepanel').forEach(p => { p.classList.remove('open'); p.setAttribute('aria-hidden','true'); });
-  const panel = document.getElementById(id);
-  panel.classList.add('open');
-  panel.setAttribute('aria-hidden','false');
-  $('#panelScrim').classList.add('show');
-}
-function closePanels() {
-  $$('.sidepanel').forEach(p => { p.classList.remove('open'); p.setAttribute('aria-hidden','true'); });
-  $('#panelScrim').classList.remove('show');
-}
-
-const modelBadge = $('#modelBadge');
-if (modelBadge) modelBadge.onclick = () => openPanel('modelPanel');
-window.addEventListener('neuli-avatar-ready', e => {
-  const a=e.detail || {};
-  if (a.pass) showToast(`3D 高模已載入 · ${Number(a.triangles||0).toLocaleString()} tris`);
-  else showToast(`3D 模型缺少：${(a.missing||[]).join(', ')}`);
-});
-window.addEventListener('neuli-avatar-error', () => showToast('3D 高模載入失敗，請檢查模型資產'));
-
-$('#settingsBtn').onclick = () => openPanel('settingsPanel');
-$('#historyBtn').onclick = () => openPanel('historyPanel');
-$('#panelScrim').onclick = closePanels;
-$$('[data-close]').forEach(b => b.onclick = closePanels);
-
-function setupSwitch(el, key, initial, onChange) {
-  state[key] = initial;
-  const apply = () => {
-    el.classList.toggle('on', state[key]);
-    el.setAttribute('aria-checked', String(state[key]));
-    onChange?.(state[key]);
-  };
-  apply();
-  el.onclick = () => { state[key] = !state[key]; apply(); };
-}
-setupSwitch($('#ttsToggle'),'tts',true);
-setupSwitch($('#subtitleToggle'),'subtitles',true, on => conversationCard.classList.toggle('hidden', !on));
-setupSwitch($('#memoryToggle'),'memory',true, on => { if (!on) localStorage.removeItem('neuli.messages'); else persist(); });
-
-$('#clearMemoryBtn').onclick = () => {
-  state.messages = [];
-  localStorage.removeItem('neuli.messages');
-  renderHistory();
-  showToast('本機對話已清除');
+const RECT={
+  eyeL:rectFromPixels(315,305,450,395),
+  eyeR:rectFromPixels(455,270,590,360),
+  mouth:rectFromPixels(385,435,565,550),
 };
 
-$$('#wardrobe .wardrobe-card').forEach(btn => {
-  btn.classList.toggle('active', btn.dataset.outfit === state.outfit);
-  btn.onclick = () => {
-    state.outfit = btn.dataset.outfit;
-    if (avatar) avatar.dataset.outfit = state.outfit;
-    avatarCall('setOutfit', state.outfit);
-    $$('#wardrobe .wardrobe-card').forEach(x => x.classList.toggle('active', x === btn));
-    persist();
-    setPresence('換好衣服 · 看著你', 'happy');
-    showToast('已換上新穿搭');
-  };
-});
+const st={
+  target:[0,0],look:[0,0],lastPointer:performance.now(),
+  blink:0,blinkAt:performance.now()+1700,smile:.10,
+  vis:[0,0,0,0,0],head:.68,breath:.52,hair:.46,gaze:.75,lip:.82,
+  speaking:false,
+};
 
-$$('#scenePicker button').forEach(btn => {
-  btn.classList.toggle('active', btn.dataset.scene === state.scene);
-  btn.onclick = () => {
-    state.scene = btn.dataset.scene;
-    app.dataset.scene = state.scene;
-    $$('#scenePicker button').forEach(x => x.classList.toggle('active', x === btn));
-    persist();
-  };
-});
-app.dataset.scene = state.scene;
-if (avatar) avatar.dataset.outfit = state.outfit;
-avatarCall('setOutfit', state.outfit);
+function resize(){
+  const d=Math.min(devicePixelRatio||1,2);
+  const r=stage.getBoundingClientRect();
+  const stageAR=r.width/r.height;
+  let w,h;
+  if(stageAR>IMAGE_AR){h=r.height*1.035;w=h*IMAGE_AR}else{w=r.width*1.035;h=w/IMAGE_AR}
+  canvas.style.width=w+'px'; canvas.style.height=h+'px';
+  canvas.width=Math.max(1,Math.round(w*d)); canvas.height=Math.max(1,Math.round(h*d));
+  gl.viewport(0,0,canvas.width,canvas.height);
+}
+addEventListener('resize',resize);
 
-const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-let rec = null;
-if (SR) {
-  rec = new SR();
-  rec.lang = 'zh-TW';
-  rec.interimResults = true;
-  rec.continuous = false;
-  rec.onstart = () => { state.listening = true; micBtn.classList.add('active'); setPresence('正在聽你說…', 'warm'); $('#composerHint').textContent = '正在聽你說話，再點一次停止'; };
-  rec.onresult = e => {
-    let transcript = '';
-    for (let i=e.resultIndex; i<e.results.length; i++) transcript += e.results[i][0].transcript;
-    input.value = transcript;
+function pointer(e){
+  const r=stage.getBoundingClientRect();
+  st.target=[
+    Math.max(-1,Math.min(1,((e.clientX-r.left)/r.width-.5)*2)),
+    Math.max(-1,Math.min(1,-((e.clientY-r.top)/r.height-.5)*2)),
+  ];
+  st.lastPointer=performance.now();
+}
+stage.addEventListener('pointermove',pointer);
+stage.addEventListener('pointerdown',pointer);
+stage.addEventListener('pointerleave',()=>{st.lastPointer=0;});
+
+function useTexture(tex,prog){
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,tex);
+  const loc=gl.getUniformLocation(prog,'uTex'); if(loc)gl.uniform1i(loc,0);
+}
+function drawBase(time,breath){
+  gl.useProgram(baseProgram); bind(baseProgram,baseBuffers); useTexture(textures.base,baseProgram);
+  gl.uniform1f(gl.getUniformLocation(baseProgram,'uTime'),time);
+  gl.uniform2f(gl.getUniformLocation(baseProgram,'uLook'),st.look[0],st.look[1]);
+  gl.uniform1f(gl.getUniformLocation(baseProgram,'uBreath'),breath);
+  gl.uniform1f(gl.getUniformLocation(baseProgram,'uHeadStrength'),st.head);
+  gl.uniform1f(gl.getUniformLocation(baseProgram,'uAlpha'),1);
+  gl.drawElements(gl.TRIANGLES,baseBuffers.count,gl.UNSIGNED_SHORT,0);
+}
+function mouthShape(){
+  const [A,I,U,E,O]=st.vis;
+  return {
+    open:A*.92+I*.20+U*.38+E*.28+O*.72,
+    wide:A*.12+I*.72-U*.22+E*.60-O*.20,
+    round:U*.76+O*.94,
   };
-  rec.onend = () => {
-    state.listening = false;
-    micBtn.classList.remove('active');
-    $('#composerHint').textContent = '按住麥克風不用，點一下開始／停止語音輸入';
-    if (input.value.trim()) submitMessage(); else setPresence('看著你 · 微笑', 'warm');
-  };
-  rec.onerror = e => {
-    state.listening = false;
-    micBtn.classList.remove('active');
-    setPresence('麥克風暫時不可用', 'warm');
-    showToast(e.error === 'not-allowed' ? '請允許麥克風權限' : '語音辨識暫時不可用');
-  };
-  micBtn.onclick = () => {
-    try { state.listening ? rec.stop() : rec.start(); } catch {}
-  };
-} else {
-  micBtn.onclick = () => showToast('此瀏覽器未提供內建語音辨識');
+}
+function drawLayer(tex,rect,kind,alpha=1){
+  gl.useProgram(layerProgram); bind(layerProgram,layerBuffers); useTexture(tex,layerProgram);
+  gl.uniform4f(gl.getUniformLocation(layerProgram,'uRect'),...rect);
+  gl.uniform2f(gl.getUniformLocation(layerProgram,'uLook'),st.look[0]*st.gaze,st.look[1]*st.gaze);
+  const m=mouthShape();
+  gl.uniform4f(gl.getUniformLocation(layerProgram,'uShape'),m.open,m.wide,m.round,st.smile);
+  gl.uniform1f(gl.getUniformLocation(layerProgram,'uBlink'),st.blink);
+  gl.uniform1f(gl.getUniformLocation(layerProgram,'uKind'),kind);
+  gl.uniform1f(gl.getUniformLocation(layerProgram,'uStrength'),st.lip);
+  gl.uniform1f(gl.getUniformLocation(layerProgram,'uAlpha'),alpha);
+  gl.drawElements(gl.TRIANGLES,layerBuffers.count,gl.UNSIGNED_SHORT,0);
+}
+function drawHair(time){
+  gl.useProgram(hairProgram); bind(hairProgram,hairBuffers); useTexture(textures.hair,hairProgram);
+  gl.uniform1f(gl.getUniformLocation(hairProgram,'uTime'),time);
+  gl.uniform2f(gl.getUniformLocation(hairProgram,'uLook'),st.look[0],st.look[1]);
+  gl.uniform1f(gl.getUniformLocation(hairProgram,'uHairStrength'),st.hair);
+  gl.uniform1f(gl.getUniformLocation(hairProgram,'uAlpha'),.72);
+  gl.drawElements(gl.TRIANGLES,hairBuffers.count,gl.UNSIGNED_SHORT,0);
 }
 
-renderHistory();
-if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(()=>{}));
+let last=performance.now(),frames=0,fpsAt=last;
+function frame(now){
+  requestAnimationFrame(frame);
+  const dt=Math.min(.05,(now-last)/1000); last=now;
+  if(now-st.lastPointer>3400&&!st.speaking){
+    st.target[0]=Math.sin(now*.00039)*.23;
+    st.target[1]=Math.sin(now*.00031+1.2)*.11;
+  }
+  st.look[0]+=(st.target[0]-st.look[0])*Math.min(1,dt*4.4);
+  st.look[1]+=(st.target[1]-st.look[1])*Math.min(1,dt*4.4);
+  if(now>st.blinkAt && st.blink<=.001){
+    st.blink=.001;
+    st.blinkAt=now+2300+Math.random()*4300;
+  }
+  if(st.blink>0){
+    st.blink += dt*5.8;
+    if(st.blink>=2)st.blink=0;
+  }
+  const blinkCurve=st.blink===0?0:Math.sin(Math.min(2,st.blink)*Math.PI/2);
+  const blinkSaved=st.blink; st.blink=blinkCurve;
+  const breath=(Math.sin(now*.00155)+1)*.5*st.breath;
+  gl.clearColor(0,0,0,0); gl.clear(gl.COLOR_BUFFER_BIT);
+  if(ready){
+    drawBase(now/1000,breath);
+    // Open-eye layers keep the same identity and gaze. Dedicated closed-eye
+    // layers cross-fade over them during blink, avoiding the ghosting created
+    // by vertically crushing the whole face texture.
+    drawLayer(textures.eyeL,RECT.eyeL,0,1);
+    drawLayer(textures.eyeR,RECT.eyeR,0,1);
+    if(st.blink>.015){
+      drawLayer(textures.eyeLC,RECT.eyeL,4,Math.min(1,st.blink*1.08));
+      drawLayer(textures.eyeRC,RECT.eyeR,4,Math.min(1,st.blink*1.08));
+    }
+    drawLayer(textures.mouth,RECT.mouth,1,1);
+    drawHair(now/1000);
+  }
+  st.blink=blinkSaved;
+  $('#yaw').textContent=`YAW ${Math.round(st.look[0]*20*st.head)}°`;
+  $('#pitch').textContent=`PITCH ${Math.round(st.look[1]*10*st.head)}°`;
+  frames++;
+  if(now-fpsAt>700){$('#fps').textContent=`${Math.round(frames*1000/(now-fpsAt))} FPS`;frames=0;fpsAt=now;}
+}
+requestAnimationFrame(frame);
+
+const visNames=['A','I','U','E','O'];
+function setVis(i,a=1){
+  st.vis=[0,0,0,0,0];
+  if(i>=0)st.vis[i]=a;
+  $('#viseme').textContent=i<0?'VISEME —':`VISEME ${visNames[i]}`;
+}
+function visemeForChar(c,i=0){
+  if(/[啊阿哈咖嘎卡]/.test(c))return 0;
+  if(/[一衣你里其西知]/.test(c))return 1;
+  if(/[屋烏無不夫]/.test(c))return 2;
+  if(/[欸誒也耶]/.test(c))return 3;
+  if(/[喔哦我多說]/.test(c))return 4;
+  return (c.charCodeAt(0)+i*3)%5;
+}
+let visTimer=0;
+function animateVisemes(text,duration){
+  clearInterval(visTimer);
+  const chars=[...text.replace(/\s/g,'')];
+  const seq=(chars.length?chars:['啊','一','烏','欸','喔']).map(visemeForChar);
+  let i=0; const step=Math.max(72,Math.min(135,duration/Math.max(1,seq.length)));
+  setVis(seq[0],.82);
+  visTimer=setInterval(()=>{setVis(seq[i%seq.length],.72+.22*Math.sin(i*.8));i++;},step);
+}
+function stopVisemes(){
+  clearInterval(visTimer); setVis(-1); st.speaking=false; stateLabel.textContent='看著你 · 分層 Live Rig';
+}
+function pickVoice(){
+  const vs=speechSynthesis.getVoices();
+  return vs.find(v=>/zh-TW/i.test(v.lang)&&/female|Mei|Hsiao|Ting|Yating|美/i.test(v.name))||vs.find(v=>/zh-TW/i.test(v.lang))||vs.find(v=>/^zh/i.test(v.lang))||vs[0];
+}
+function speak(text){
+  if(!('speechSynthesis' in window)){
+    const dur=Math.max(1000,text.length*130); st.speaking=true; animateVisemes(text,dur); setTimeout(stopVisemes,dur); return;
+  }
+  speechSynthesis.cancel();
+  const u=new SpeechSynthesisUtterance(text); u.lang='zh-TW'; u.rate=.96; u.pitch=1.06;
+  const v=pickVoice(); if(v)u.voice=v;
+  const dur=Math.max(1200,text.length*150);
+  u.onstart=()=>{st.speaking=true;stateLabel.textContent='正在說話 · 分層嘴型';animateVisemes(text,dur);};
+  u.onboundary=(e)=>{if(e.name==='word'||e.name==='sentence'){const c=text[Math.min(text.length-1,e.charIndex||0)]||'啊';setVis(visemeForChar(c,e.charIndex||0),.92);}};
+  u.onend=stopVisemes; u.onerror=stopVisemes; speechSynthesis.speak(u);
+}
+
+const conv=$('#conversation'), input=$('#input');
+function add(text,who){
+  const d=document.createElement('div'); d.className='bubble '+who; d.textContent=text; conv.appendChild(d); conv.scrollTop=conv.scrollHeight;
+  const log=JSON.parse(localStorage.getItem('neuli-live-log')||'[]'); log.push({who,text,t:Date.now()}); localStorage.setItem('neuli-live-log',JSON.stringify(log.slice(-40)));
+}
+async function send(){
+  const m=input.value.trim(); if(!m)return; input.value=''; add(m,'me'); stateLabel.textContent='正在想…';
+  try{const r=await fetch('/api/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({message:m})}); const j=await r.json(); add(j.reply,'her'); speak(j.reply);}
+  catch{const x='我還在，只是聊天服務剛剛沒有連上。'; add(x,'her'); speak(x);}
+}
+$('#send').onclick=send; input.addEventListener('keydown',e=>{if(e.key==='Enter')send();});
+
+document.querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>{
+  const a=b.dataset.action;
+  if(a==='smile'){st.smile=st.smile>.35?.10:.72;stateLabel.textContent=st.smile>.35?'對你微笑':'看著你 · 分層 Live Rig';}
+  if(a==='blink'){st.blink=.001;st.blinkAt=performance.now()+3200;}
+  if(a==='talk')speak('嗨，這一版我的眼睛、眼皮、嘴唇和前髮已經分層控制了。');
+  if(a==='reset'){st.smile=.10;st.target=[0,0];stopVisemes();}
+});
+
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+if(SR){
+  const sr=new SR();sr.lang='zh-TW';sr.interimResults=true;sr.continuous=false;
+  sr.onstart=()=>stateLabel.textContent='正在聽你說…';
+  sr.onresult=e=>{let s='';for(let i=e.resultIndex;i<e.results.length;i++)s+=e.results[i][0].transcript;input.value=s;};
+  sr.onend=()=>{if(input.value.trim())send();else stateLabel.textContent='看著你 · 分層 Live Rig';};
+  sr.onerror=()=>stateLabel.textContent='麥克風暫時不可用'; $('#mic').onclick=()=>sr.start();
+}else $('#mic').onclick=()=>alert('此瀏覽器沒有提供內建語音辨識，可改用鍵盤輸入。');
+
+function bindRange(id,key){const el=$('#'+id),out=$('#'+id+'Out');el.oninput=()=>{st[key]=Number(el.value)/100;out.textContent=el.value+'%';};}
+bindRange('head','head'); bindRange('breath','breath'); bindRange('hair','hair'); bindRange('gaze','gaze'); bindRange('lip','lip');
+$('#settings').onclick=()=>$('#drawer').classList.add('open'); $('#close').onclick=()=>$('#drawer').classList.remove('open');
+document.querySelectorAll('[data-scene]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-scene]').forEach(x=>x.classList.remove('active'));b.classList.add('active');$('#scene').className='scene scene-'+b.dataset.scene;});
+if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(()=>{});

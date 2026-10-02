@@ -1,14 +1,8 @@
 {
-  "name": "neuli-real-avatar",
-  "version": "0.4.0",
-  "private": true,
-  "scripts": {
-    "dev": "wrangler pages dev public",
-    "deploy": "wrangler pages deploy public",
-    "model:build": "python tools/build_haneul_glb.py",
-    "model:validate": "python tools/validate_haneul_glb.py"
-  },
-  "devDependencies": {
-    "wrangler": "^4.0.0"
-  }
+  "name":"neuli-2.5d-live-v0.3",
+  "version":"0.3.0",
+  "private":true,
+  "type":"module",
+  "scripts":{"start":"node server.mjs","check":"node --check public/app.js && node --check server.mjs"},
+  "engines":{"node":">=20"}
 }

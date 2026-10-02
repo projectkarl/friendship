@@ -1,30 +1,27 @@
-# NEULI v0.4 Test Report
+# NEULI Live 2.5D v0.3 — Test Report
 
-## PASS
+Date: 2026-10-02
 
-- `avatar3d.js` JavaScript syntax check
-- `app.js` JavaScript syntax check
-- `functions/api/tts.js` JavaScript syntax check
-- GLB magic/version/declared length
-- JSON and BIN chunk boundary validation
-- all bufferView ranges inside binary buffer
-- standard glTF parser (`trimesh`) loads 17 geometries
-- total geometry: 51,836 triangles
-- skeleton: 9 joints
-- required bones found: Hips, Spine, Chest, Neck, Head
-- required facial targets found: Blink, Smile, A, I, U, E, O
-- embedded PNG skin texture exists
-- BodyMesh references glTF skin index 0
-- UI has actual model QA panel
-- runtime API name mismatch fixed: both `window.neuliAvatar` and `window.NEULI_AVATAR` point to the same controller
-- TTS supports audio-only and audio + timestamped viseme data
+## Passed
+
+- `node --check public/app.js`
+- `node --check server.mjs`
+- `GET /health` → 200, version `0.3.0`
+- `GET /` → 200
+- Layer PNG assets exist and are non-empty
+- `POST /api/chat` → JSON reply
+- Neutral reconstruction check: base + eye + mouth layers reconstruct the source appearance without visible identity swap
+- Responsive CSS includes desktop, <=860px mobile/tablet, <=420px compact, <=360px narrow-phone rules
+
+## Runtime architecture
+
+- One WebGL canvas
+- High-density base mesh draw pass
+- Independent facial layer draw passes
+- Dedicated closed-eye cross-fade instead of eye-crushing blink
+- Separate mouth deformation for visemes
+- Separate front-hair motion pass
 
 ## Environment limitation
 
-A full screenshot-based WebGL smoke test was attempted with the container Chromium. The local Chromium environment could not initialize EGL/ANGLE/SwiftShader and timed out before a WebGL context became available. This is recorded as **not verified in this container**, not as a successful browser-render test.
-
-The GLB itself was still independently parsed and structurally validated, and the HTTP/runtime files are testable without claiming GPU rendering passed.
-
-## Fidelity limitation
-
-The bundled model is a real 3D single-view reconstruction of the generated Haneul reference. It is not a multi-camera scan or manually sculpted film-quality digital human, so scan-grade identity fidelity at extreme side/back angles is not claimed.
+A Chromium screenshot smoke test could not be completed in this container because the headless Chromium graphics process hangs under the available EGL/ANGLE software-rendering environment. HTTP, JS syntax, asset, and API checks pass; final visual WebGL validation should be done in Safari/Chrome on the target phone or desktop.
